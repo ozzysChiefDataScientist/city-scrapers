@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 
 from city_scrapers_core.constants import COMMISSION, COMMITTEE
@@ -9,9 +10,8 @@ class IlEnvironmentalJusticeSpider(CityScrapersSpider):
     name = "il_environmental_justice"
     agency = "Illinois Commission on Environmental Justice"
     timezone = "America/Chicago"
-    allowed_domains = ["www2.illinois.gov"]
     start_urls = [
-        "https://www2.illinois.gov/epa/topics/environmental-justice/commission/Pages/meetings.aspx"
+        "https://www2.illinois.gov/epa/topics/environmental-justice/commission/Pages/meetings.aspx"  # noqa
     ]
     location = {
         "name": "James R Thompson Center",
@@ -51,7 +51,7 @@ class IlEnvironmentalJusticeSpider(CityScrapersSpider):
                 continue
 
             for date_item in list_item.xpath("./li"):
-                date_str = date_item.xpath("./text()").extract_first().strip()
+                date_str = (date_item.xpath("./text()").extract_first() or "").strip()
                 if not date_str:
                     continue
                 meeting = Meeting(
@@ -81,12 +81,17 @@ class IlEnvironmentalJusticeSpider(CityScrapersSpider):
     def _parse_start(self, date_str, year_str):
         """Parse start datetime as a naive datetime object."""
         # Using the earlier time, even though it's typically at 10am
-        return datetime.strptime("{} {} 9:30".format(date_str, year_str), "%B %d %Y %H:%M")
+        date_match = re.search(r"[a-zA-Z]{3,10}\s+\d{1,2}", date_str)
+        if not date_match:
+            return
+        return datetime.strptime(
+            "{} {} 9:30".format(date_match.group(), year_str), "%B %d %Y %H:%M"
+        )
 
     def _parse_links(self, item, date_item, response):
         """
-        Parse or generate links. Checks combinations of elements and selectors, return the first
-        that's successful
+        Parse or generate links. Checks combinations of elements and selectors, return
+        the first that's successful
         """
         links = []
         for el, sel in [
@@ -98,16 +103,12 @@ class IlEnvironmentalJusticeSpider(CityScrapersSpider):
             (item, "./following-sibling::li[1]/ul/li/a"),
         ]:
             for link in el.xpath(sel):
-                links.append({
-                    "title": link.css("*::text").extract_first().strip(),
-                    "href": response.urljoin(link.attrib["href"]),
-                })
+                links.append(
+                    {
+                        "title": link.css("*::text").extract_first().strip(),
+                        "href": response.urljoin(link.attrib["href"]),
+                    }
+                )
             if len(links) > 0:
-                if el == date_item:
-                    print("date item")
-                else:
-                    print("item")
-                print(el)
-                print(sel)
                 return links
         return links

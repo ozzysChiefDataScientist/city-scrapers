@@ -5,6 +5,7 @@ import pytest
 from city_scrapers_core.constants import BOARD
 from city_scrapers_core.utils import file_response
 from freezegun import freeze_time
+from scrapy.settings import Settings
 
 from city_scrapers.spiders.chi_infrastructure_trust import ChiInfrastructureTrustSpider
 
@@ -13,6 +14,7 @@ test_response = file_response(
     url="http://chicagoinfrastructure.org/public-records/meeting-records-2/",
 )
 spider = ChiInfrastructureTrustSpider()
+spider.settings = Settings(values={"CITY_SCRAPERS_ARCHIVE": False})
 
 freezer = freeze_time("2019-04-18")
 freezer.start()
@@ -20,6 +22,10 @@ freezer.start()
 parsed_items = [item for item in spider.parse(test_response)]
 
 freezer.stop()
+
+
+def test_count():
+    assert len(parsed_items) == 2
 
 
 def test_title():
@@ -39,11 +45,14 @@ def test_end():
 
 
 def test_time_notes():
-    assert parsed_items[0]["time_notes"] == ""
+    assert parsed_items[0]["time_notes"] == "Confirm details in meeting documents"
 
 
 def test_id():
-    assert parsed_items[0]["id"] == "chi_infrastructure_trust/201812110000/x/board_of_directors"
+    assert (
+        parsed_items[0]["id"]
+        == "chi_infrastructure_trust/201812110000/x/board_of_directors"
+    )
 
 
 def test_status():
@@ -59,18 +68,18 @@ def test_location():
 
 def test_source():
     assert parsed_items[0]["source"] == (
-        "http://chicagoinfrastructure.org/"
-        "public-records/meeting-records-2/"
+        "http://chicagoinfrastructure.org/" "public-records/meeting-records-2/"
     )
 
 
 def test_links():
-    assert parsed_items[0]["links"] == [{
-        "href":
-            "http://chicagoinfrastructure.org/wp-content/uploads/2018/12/"
+    assert parsed_items[0]["links"] == [
+        {
+            "href": "http://chicagoinfrastructure.org/wp-content/uploads/2018/12/"
             "Board-Meeting-Agenda-20181211.pdf",
-        "title": "Meeting Agenda"
-    }]
+            "title": "Meeting Agenda",
+        }
+    ]
 
 
 def test_classification():

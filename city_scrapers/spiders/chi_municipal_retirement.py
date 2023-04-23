@@ -10,7 +10,6 @@ class ChiMunicipalRetirementSpider(CityScrapersSpider):
     name = "chi_municipal_retirement"
     agency = "Municipal Employees' Annuity and Benefit Fund of Chicago"
     timezone = "America/Chicago"
-    allowed_domains = ["www.meabf.org"]
     start_urls = ["https://www.meabf.org/retirement-board/minutes"]
     location = {
         "name": "Fund Office",
@@ -73,15 +72,19 @@ class ChiMunicipalRetirementSpider(CityScrapersSpider):
 
     def _parse_location(self, response):
         """Parse or generate location."""
-        if "321 N" not in " ".join(response.css("#content-container p::text").extract()):
+        if "321 N" not in " ".join(
+            response.css("#content-container p::text").extract()
+        ):
             raise ValueError("Meeting location has changed")
 
     def _parse_links(self, item, response):
         """Parse or generate links."""
         links = []
         for link in item.css("a"):
-            links.append({
-                "href": response.urljoin(link.attrib["href"]),
-                "title": " ".join(link.css("*::text").extract()).strip(),
-            })
+            links.append(
+                {
+                    "href": response.urljoin(link.attrib["href"]),
+                    "title": " ".join(link.css("*::text").extract()).strip(),
+                }
+            )
         return links

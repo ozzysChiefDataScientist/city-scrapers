@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime
 
@@ -5,13 +6,13 @@ from city_scrapers_core.constants import ADVISORY_COMMITTEE
 from city_scrapers_core.items import Meeting
 from city_scrapers_core.spiders import CityScrapersSpider
 from dateutil.relativedelta import relativedelta
+from scrapy.http import HtmlResponse
 
 
 class IlPublicHealthSpider(CityScrapersSpider):
     name = "il_public_health"
     agency = "Illinois Department of Public Health"
     timezone = "America/Chicago"
-    allowed_domains = ["www.dph.illinois.gov"]
 
     @property
     def start_urls(self):
@@ -19,11 +20,15 @@ class IlPublicHealthSpider(CityScrapersSpider):
         today = datetime.now()
         url_list = []
         for months_diff in range(-12, 13):
-            month_str = (today + relativedelta(months=months_diff)).strftime("%Y%m")
-            url_list.extend([
-                "http://www.dph.illinois.gov/events/{}?page={}".format(month_str, i)
-                for i in range(4)
-            ])
+            month_str = (today + relativedelta(months=months_diff)).strftime("%Y/%m")
+            url_list.extend(
+                [
+                    "http://www.dph.illinois.gov/views/ajax?view_name=events&view_display_id=page&view_args={}&page={}".format(  # noqa
+                        month_str, i
+                    )
+                    for i in range(4)
+                ]
+            )
         return url_list
 
     def parse(self, response):
@@ -33,23 +38,30 @@ class IlPublicHealthSpider(CityScrapersSpider):
         Change the `_parse_title`, `_parse_start`, etc methods to fit your scraping
         needs.
         """
-        for item in response.css("tr.eventspage"):
+        data = json.loads(response.text)
+        body = "".join([d.get("data", "") for d in data])
+        res = HtmlResponse(url=response.url, body=body, encoding="utf-8")
+        last_year = datetime.today().replace(year=datetime.today().year - 1)
+        for item in res.css("tr.eventspage"):
             title = self._parse_title(item)
             description = self._parse_description(item)
             # Skip meetings in certain categories
             if self.should_ignore_meeting(title, description):
                 continue
+            start = self._parse_start(item)
+            if start < last_year and not self.settings.getbool("CITY_SCRAPERS_ARCHIVE"):
+                continue
             meeting = Meeting(
                 title=title,
                 description=description,
                 classification=self._parse_classification(item),
-                start=self._parse_start(item),
+                start=start,
                 end=self._parse_end(item),
                 all_day=False,
                 time_notes="",
                 location=self._parse_location(description),
                 links=self._parse_links(item),
-                source=response.url,
+                source="http://www.dph.illinois.gov/events/",
             )
 
             meeting["status"] = self._get_status(
@@ -65,10 +77,12 @@ class IlPublicHealthSpider(CityScrapersSpider):
 
     def _parse_description(self, item):
         """Parse or generate meeting description."""
-        return "\n".join([
-            re.sub(r"\s+", " ", line).strip()
-            for line in item.css(".event_description > p *::text").extract()
-        ])
+        return "\n".join(
+            [
+                re.sub(r"\s+", " ", line).strip()
+                for line in item.css(".event_description > p *::text").extract()
+            ]
+        )
 
     def _parse_classification(self, item):
         """Parse or generate classification from allowed options."""
@@ -81,9 +95,13 @@ class IlPublicHealthSpider(CityScrapersSpider):
 
     def _parse_end(self, item):
         """Parse end datetime as a naive datetime object. Added by pipeline if None"""
-        end_el = item.css(".start_end_time .date-display-single:not(:first-child):last-child")
+        end_el = item.css(
+            ".start_end_time .date-display-single:not(:first-child):last-child"
+        )
         if end_el:
-            end_date = datetime.strptime(end_el.attrib["content"][:19], "%Y-%m-%dT%H:%M:%S")
+            end_date = datetime.strptime(
+                end_el.attrib["content"][:19], "%Y-%m-%dT%H:%M:%S"
+            )
             end_time = datetime.strptime(
                 end_el.xpath("./text()").extract_first().strip(), "%I:%M%p"
             ).time()
@@ -98,12 +116,12 @@ class IlPublicHealthSpider(CityScrapersSpider):
         chi_match = re.search(
             r"(\d{1,5}\s+[^(IL)]{0,150}?Chicago(,\s+IL(\s+\d{5})?)?)",
             description,
-            flags=re.DOTALL | re.M
+            flags=re.DOTALL | re.M,
         )
         springfield_match = re.search(
             r"(\d{1,5}\s+[^(IL)]{0,150}?Springfield(,\s+IL(\s+\d{5})?)?)",
             description,
-            flags=re.DOTALL | re.M
+            flags=re.DOTALL | re.M,
         )
         il_match = re.search(
             r"(\d{1,5}\s+.{0,150}?IL(\s+\d{5})?)", description, flags=re.DOTALL | re.M
@@ -125,10 +143,12 @@ class IlPublicHealthSpider(CityScrapersSpider):
         """Parse or generate links."""
         links = []
         for link in item.css(".addl_materials a, .meeting_minutes_agenda a"):
-            links.append({
-                "title": link.xpath("./text()").extract_first(),
-                "href": link.attrib["href"],
-            })
+            links.append(
+                {
+                    "title": link.xpath("./text()").extract_first(),
+                    "href": link.attrib["href"],
+                }
+            )
         return links
 
     def should_ignore_meeting(self, title, description):
